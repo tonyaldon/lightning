@@ -1,4 +1,3 @@
-import json5
 import re
 import json
 
@@ -71,17 +70,3 @@ def verify_rune(plugin, request):
                            {"rune": rune,
                             "method": rpc_method,
                             "params": rpc_params})
-
-
-def process_help_response(help_response):
-    # Use json5.loads due to single quotes in response
-    processed_res = json5.loads(str(help_response))["help"]
-    line = "\n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n\n"
-    processed_html_res = ""
-    for row in processed_res:
-        processed_html_res += f"Command: {row['command']}\n"
-        processed_html_res += f"Category: {row['category']}\n"
-        processed_html_res += f"Description: {row['description']}\n"
-        processed_html_res += f"Verbose: {row['verbose']}\n"
-        processed_html_res += line
-    return processed_html_res

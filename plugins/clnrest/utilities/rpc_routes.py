@@ -1,7 +1,7 @@
 import json5
 from flask import request, make_response
 from flask_restx import Namespace, Resource
-from .shared import call_rpc_method, verify_rune, process_help_response
+from .shared import call_rpc_method, verify_rune
 from .rpc_plugin import plugin
 
 methods_list = []
@@ -16,15 +16,20 @@ class ListMethodsResource(Resource):
     def get(self):
         """Get the list of all valid rpc methods, useful for Swagger to get human readable list without calling lightning-cli help"""
         try:
-            help_response = call_rpc_method(plugin, "help", [])
-            html_content = process_help_response(help_response)
-            response = make_response(html_content)
-            response.headers["Content-Type"] = "text/html"
-            return response
-
+            help_response = plugin.rpc.call("help", [])
         except Exception as err:
             plugin.log(f"Error: {err}", "debug")
-            return json5.loads(str(err)), 500
+            return {"error": err.error}, 500
+
+        commands = help_response["help"]
+        line = "\n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n\n"
+        html_content = line.join(
+            "Command: {}\n Category: {}\n Description: {}\n Verbose: {}\n".format(
+                cmd["command"], cmd["category"], cmd["description"], cmd["verbose"])
+            for cmd in commands)
+        response = make_response(html_content)
+        response.headers["Content-Type"] = "text/html"
+        return response
 
 
 @rpcns.route("/<rpc_method>")
