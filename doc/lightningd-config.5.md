@@ -451,7 +451,7 @@ specified multuple times. (Added in v23.08).
 * **min-emergency-msat**=*msat*
 
   This is the amount of funds to keep in the wallet to close anchor channels (which don't carry their own transaction fees).  It defaults to 25000sat, and is only maintained if there are any anchor channels (or, when opening an anchor channel).  This amount may be insufficient for multiple closes at once, however.
-  
+
 
 ### Cleanup control options:
 
@@ -640,7 +640,11 @@ authenticate to the Tor control port.
 
 * **rest-certs**=*PATH*  [plugin `clnrest.py`]
 
-  Defines the path for HTTPS cert & key. Default path is same as RPC file path to utilize gRPC's client certificate. If it is missing at the configured location, new identity (`client.pem` and `client-key.pem`) will be generated.
+  Defines the path for HTTPS cert & key. Default path is
+  'lightning-dir/network/clnrest' depending on **lightning-dir** and
+  **network** values (default: **$HOME/.lightning/bitcoin/clnrest**).
+  If `client.pem` and `client-key.pem` are not defined in that
+  directory, new self-signed certificates will be generated.
 
 * **rest-cors-origins**=*CORSORIGINS*  [plugin `clnrest.py`]
 
