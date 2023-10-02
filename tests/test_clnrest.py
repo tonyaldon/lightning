@@ -6,6 +6,13 @@ import requests
 from pathlib import Path
 
 
+def test_clnrest_no_auto_start(node_factory):
+    """Ensure that we do not start clnrest unless a `rest-port` is configured."""
+    l1 = node_factory.get_node()
+    wait_for(lambda: [p for p in l1.rpc.plugin('list')['plugins'] if 'clnrest.py' in p['name']] == [])
+    assert l1.daemon.is_in_log(r'plugin-clnrest.py: Killing plugin: disabled itself at init: `rest-port` option is not configured')
+
+
 def test_clnrest_self_signed_certificates(node_factory):
     """Test that self-signed certificates have `rest-host` IP in Subject Alternative Name."""
     rest_port = str(reserve())
