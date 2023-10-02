@@ -4,6 +4,7 @@ from pyln.testing.utils import env, wait_for, TEST_NETWORK
 import unittest
 import requests
 from pathlib import Path
+import os
 
 
 def test_clnrest_no_auto_start(node_factory):
@@ -101,3 +102,26 @@ def test_clnrest_generate_certificate(node_factory):
     l1.restart()
     contents_2 = [f.open().read() for f in files]
     assert [c[0] != c[1] for c in zip(contents, contents_2)] == [True] * len(files)
+
+
+def test_clnrest_list_methods(node_factory):
+    """Test GET request on `/v1/list-methods` end point with default values for options."""
+    # start node l1 with clnrest listenning at `base_url` with certificate `ca_cert_path`
+    rest_port = str(reserve())
+    l1 = node_factory.get_node(options={'rest-port': rest_port})
+    base_url = 'https://127.0.0.1:' + rest_port
+    wait_for(lambda: l1.daemon.is_in_log(r'plugin-clnrest.py: REST server running at ' + base_url))
+    rest_certs_default = Path(l1.rpc.listconfigs()['configs']['rest-certs']['value_str'])
+    ca_cert_path = rest_certs_default / 'ca.pem'
+
+    # /v1/list-methods
+    r = requests.get(base_url + '/v1/list-methods', verify=ca_cert_path)
+    assert r.status_code == 200
+    assert r.text.find('Command: getinfo') > 0
+
+    # /v1/list-methods with the `help` method of l1 node returning an error
+    plugin = os.path.join(os.getcwd(), "tests/plugins/clnrest_help_method.py")
+    l1.rpc.plugin_start(plugin)
+    r = requests.get(base_url + '/v1/list-methods', verify=ca_cert_path)
+    assert r.status_code == 500
+    assert r.json()['error']['code'] == -1
