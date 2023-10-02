@@ -1,6 +1,6 @@
 from ephemeral_port_reserve import reserve
 from fixtures import *  # noqa: F401,F403
-from pyln.testing.utils import env, wait_for
+from pyln.testing.utils import env, wait_for, TEST_NETWORK
 import unittest
 import requests
 from pathlib import Path
@@ -40,3 +40,57 @@ def test_clnrest_does_not_depend_on_grpc_plugin_certificates(node_factory):
     ca_cert_path = rest_certs_default / 'ca.pem'
     r = requests.get(base_url + '/v1/list-methods', verify=ca_cert_path)
     assert r.status_code == 200
+
+
+def test_clnrest_generate_certificate(node_factory):
+    """Test whether we correctly generate the certificates."""
+    # when `rest-port` not specified, clnrest disables itself and doesn't generate certs
+    l1 = node_factory.get_node()
+    wait_for(lambda: l1.daemon.is_in_log(r'plugin-clnrest.py: Killing plugin: disabled itself at init'))
+    rest_certs_default = Path(l1.daemon.lightning_dir) / TEST_NETWORK / 'clnrest'
+    assert not rest_certs_default.exists()
+
+    # when `rest-protocol` is `http`, certs are not generated
+    rest_port = str(reserve())
+    rest_protocol = 'http'
+    l1 = node_factory.get_node(options={'rest-port': rest_port,
+                                        'rest-protocol': rest_protocol})
+    rest_certs_default = Path(l1.daemon.lightning_dir) / TEST_NETWORK / 'clnrest'
+    assert not rest_certs_default.exists()
+
+    # node l1 not started
+    rest_port = str(reserve())
+    l1 = node_factory.get_node(options={'rest-port': rest_port}, start=False)
+    rest_certs_default = Path(l1.daemon.lightning_dir) / TEST_NETWORK / 'clnrest'
+    files = [rest_certs_default / f for f in [
+        'ca.pem',
+        'ca-key.pem',
+        'client.pem',
+        'client-key.pem',
+        'server-key.pem',
+        'server.pem',
+    ]]
+
+    # before starting no files exist.
+    assert [f.exists() for f in files] == [False] * len(files)
+
+    # certificates generated at startup
+    l1.start()
+    assert [f.exists() for f in files] == [True] * len(files)
+
+    # the files exist, restarting should not change them
+    contents = [f.open().read() for f in files]
+    l1.restart()
+    assert contents == [f.open().read() for f in files]
+
+    # remove client.pem file, so all certs are regenerated at restart
+    files[2].unlink()
+    l1.restart()
+    contents_1 = [f.open().read() for f in files]
+    assert [c[0] != c[1] for c in zip(contents, contents_1)] == [True] * len(files)
+
+    # remove client-key.pem file, so all certs are regenerated at restart
+    files[3].unlink()
+    l1.restart()
+    contents_2 = [f.open().read() for f in files]
+    assert [c[0] != c[1] for c in zip(contents, contents_2)] == [True] * len(files)
