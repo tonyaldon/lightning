@@ -23,7 +23,7 @@ class ListMethodsResource(Resource):
             return response
 
         except Exception as err:
-            plugin.log(f"Error: {err}", "error")
+            plugin.log(f"Error: {err}", "debug")
             return json5.loads(str(err)), 500
 
 
