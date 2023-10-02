@@ -139,7 +139,7 @@ def set_application_options(plugin):
         key_file = Path(f"{CERTS_PATH}/client-key.pem")
         if not cert_file.is_file() or not key_file.is_file():
             plugin.log(f"Certificate not found at {CERTS_PATH}. Generating a new certificate!", "debug")
-            generate_certs(plugin, CERTS_PATH)
+            generate_certs(plugin, REST_HOST, CERTS_PATH)
         try:
             plugin.log(f"Certs Path: {CERTS_PATH}", "debug")
         except Exception as err:

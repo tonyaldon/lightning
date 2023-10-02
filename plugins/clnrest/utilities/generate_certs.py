@@ -7,7 +7,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 import datetime
 
 
-def generate_ca_cert(certs_path):
+def generate_ca_cert(rest_host, certs_path):
     # Generate CA Private Key
     ca_private_key = ec.generate_private_key(ec.SECP256R1())
 
@@ -25,7 +25,11 @@ def generate_ca_cert(certs_path):
         .serial_number(x509.random_serial_number())
         .not_valid_before(datetime.datetime.utcnow())
         .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=10 * 365))  # Ten years validity
-        .add_extension(x509.SubjectAlternativeName([x509.DNSName(u"cln"), x509.DNSName(u'localhost'), x509.IPAddress(ipaddress.IPv4Address(u'127.0.0.1'))]), critical=False)
+        .add_extension(x509.SubjectAlternativeName([
+            x509.DNSName("cln"),
+            x509.DNSName("localhost"),
+            x509.IPAddress(ipaddress.IPv4Address(rest_host))
+        ]), critical=False)
         .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
         .sign(ca_private_key, hashes.SHA256())
     )
@@ -48,7 +52,7 @@ def generate_ca_cert(certs_path):
     return ca_subject, ca_private_key
 
 
-def generate_client_server_certs(certs_path, ca_subject, ca_private_key):
+def generate_client_server_certs(rest_host, certs_path, ca_subject, ca_private_key):
     # Generate Server and Client Private Keys
     server_private_key = ec.generate_private_key(ec.SECP256R1())
     client_private_key = ec.generate_private_key(ec.SECP256R1())
@@ -71,7 +75,11 @@ def generate_client_server_certs(certs_path, ca_subject, ca_private_key):
             .serial_number(x509.random_serial_number())
             .not_valid_before(datetime.datetime.utcnow())
             .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=10 * 365))  # Ten years validity
-            .add_extension(x509.SubjectAlternativeName([x509.DNSName(u"cln"), x509.DNSName(u'localhost'), x509.IPAddress(ipaddress.IPv4Address(u'127.0.0.1'))]), critical=False)
+            .add_extension(x509.SubjectAlternativeName([
+                x509.DNSName("cln"),
+                x509.DNSName("localhost"),
+                x509.IPAddress(ipaddress.IPv4Address(rest_host))
+            ]), critical=False)
             .sign(ca_private_key, hashes.SHA256())
         )
 
@@ -96,7 +104,7 @@ def generate_client_server_certs(certs_path, ca_subject, ca_private_key):
         ))
 
 
-def generate_certs(plugin, certs_path):
-    ca_subject, ca_private_key = generate_ca_cert(certs_path)
-    generate_client_server_certs(certs_path, ca_subject, ca_private_key)
+def generate_certs(plugin, rest_host, certs_path):
+    ca_subject, ca_private_key = generate_ca_cert(rest_host, certs_path)
+    generate_client_server_certs(rest_host, certs_path, ca_subject, ca_private_key)
     plugin.log(f"Certificates Generated!", "debug")
