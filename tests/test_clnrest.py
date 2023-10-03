@@ -106,15 +106,25 @@ def test_clnrest_generate_certificate(node_factory):
     assert [c[0] != c[1] for c in zip(contents, contents_2)] == [True] * len(files)
 
 
-def test_clnrest_list_methods(node_factory):
-    """Test GET request on `/v1/list-methods` end point with default values for options."""
-    # start node l1 with clnrest listenning at `base_url` with certificate `ca_cert_path`
+def start_node_with_clnrest(node_factory):
+    """Start a node with the clnrest plugin, whose options are the default options.
+    Return:
+    - the node,
+    - the base url and
+    - the certificate authority path used for the self-signed certificates."""
     rest_port = str(reserve())
     l1 = node_factory.get_node(options={'rest-port': rest_port})
     base_url = 'https://127.0.0.1:' + rest_port
     wait_for(lambda: l1.daemon.is_in_log(r'plugin-clnrest.py: REST server running at ' + base_url))
     rest_certs_default = Path(l1.rpc.listconfigs()['configs']['rest-certs']['value_str'])
     ca_cert_path = rest_certs_default / 'ca.pem'
+    return l1, base_url, ca_cert_path
+
+
+def test_clnrest_list_methods(node_factory):
+    """Test GET request on `/v1/list-methods` end point with default values for options."""
+    # start a node with clnrest
+    l1, base_url, ca_cert_path = start_node_with_clnrest(node_factory)
 
     # /v1/list-methods
     r = requests.get(base_url + '/v1/list-methods', verify=ca_cert_path)
@@ -131,13 +141,8 @@ def test_clnrest_list_methods(node_factory):
 
 def test_clnrest_rpc_method(node_factory):
     """Test POST requests on `/v1/<rpc_method>` end points with default values for options."""
-    # start node l1 with clnrest listenning at `base_url` with certificate `ca_cert_path`
-    rest_port = str(reserve())
-    l1 = node_factory.get_node(options={'rest-port': rest_port})
-    base_url = 'https://127.0.0.1:' + rest_port
-    wait_for(lambda: l1.daemon.is_in_log(r'plugin-clnrest.py: REST server running at ' + base_url))
-    rest_certs_default = Path(l1.rpc.listconfigs()['configs']['rest-certs']['value_str'])
-    ca_cert_path = rest_certs_default / 'ca.pem'
+    # start a node with clnrest
+    l1, base_url, ca_cert_path = start_node_with_clnrest(node_factory)
 
     # /v1/getinfo no rune provided in header of the request
     r = requests.post(base_url + '/v1/getinfo', verify=ca_cert_path)
@@ -195,13 +200,8 @@ def test_clnrest_rpc_method(node_factory):
 
 def test_clnrest_websocket_no_rune(node_factory):
     """Test websocket with default values for options."""
-    # start node l1 with clnrest listenning at `base_url` with certificate `ca_cert_path`
-    rest_port = str(reserve())
-    l1 = node_factory.get_node(options={'rest-port': rest_port})
-    base_url = 'https://127.0.0.1:' + rest_port
-    wait_for(lambda: l1.daemon.is_in_log(r'plugin-clnrest.py: REST server running at ' + base_url))
-    rest_certs_default = Path(l1.rpc.listconfigs()['configs']['rest-certs']['value_str'])
-    ca_cert_path = rest_certs_default / 'ca.pem'
+    # start a node with clnrest
+    l1, base_url, ca_cert_path = start_node_with_clnrest(node_factory)
 
     # http session
     http_session = requests.Session()
@@ -224,13 +224,8 @@ def test_clnrest_websocket_no_rune(node_factory):
 
 def test_clnrest_websocket_wrong_rune(node_factory):
     """Test websocket with default values for options."""
-    # start node l1 with clnrest listenning at `base_url` with certificate `ca_cert_path`
-    rest_port = str(reserve())
-    l1 = node_factory.get_node(options={'rest-port': rest_port})
-    base_url = 'https://127.0.0.1:' + rest_port
-    wait_for(lambda: l1.daemon.is_in_log(r'plugin-clnrest.py: REST server running at ' + base_url))
-    rest_certs_default = Path(l1.rpc.listconfigs()['configs']['rest-certs']['value_str'])
-    ca_cert_path = rest_certs_default / 'ca.pem'
+    # start a node with clnrest
+    l1, base_url, ca_cert_path = start_node_with_clnrest(node_factory)
 
     # http session
     http_session = requests.Session()
@@ -254,13 +249,8 @@ def test_clnrest_websocket_wrong_rune(node_factory):
 
 def test_clnrest_websocket_unrestricted_rune(node_factory):
     """Test websocket with default values for options."""
-    # start node l1 with clnrest listenning at `base_url` with certificate `ca_cert_path`
-    rest_port = str(reserve())
-    l1 = node_factory.get_node(options={'rest-port': rest_port})
-    base_url = 'https://127.0.0.1:' + rest_port
-    wait_for(lambda: l1.daemon.is_in_log(r'plugin-clnrest.py: REST server running at ' + base_url))
-    rest_certs_default = Path(l1.rpc.listconfigs()['configs']['rest-certs']['value_str'])
-    ca_cert_path = rest_certs_default / 'ca.pem'
+    # start a node with clnrest
+    l1, base_url, ca_cert_path = start_node_with_clnrest(node_factory)
 
     # http session
     http_session = requests.Session()
@@ -285,13 +275,8 @@ def test_clnrest_websocket_unrestricted_rune(node_factory):
 
 def test_clnrest_websocket_rune_no_getinfo(node_factory):
     """Test websocket with default values for options."""
-    # start node l1 with clnrest listenning at `base_url` with certificate `ca_cert_path`
-    rest_port = str(reserve())
-    l1 = node_factory.get_node(options={'rest-port': rest_port})
-    base_url = 'https://127.0.0.1:' + rest_port
-    wait_for(lambda: l1.daemon.is_in_log(r'plugin-clnrest.py: REST server running at ' + base_url))
-    rest_certs_default = Path(l1.rpc.listconfigs()['configs']['rest-certs']['value_str'])
-    ca_cert_path = rest_certs_default / 'ca.pem'
+    # start a node with clnrest
+    l1, base_url, ca_cert_path = start_node_with_clnrest(node_factory)
 
     # http session
     http_session = requests.Session()
