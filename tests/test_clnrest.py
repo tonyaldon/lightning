@@ -5,6 +5,8 @@ import unittest
 import requests
 from pathlib import Path
 import os
+import socketio
+import time
 
 
 def test_clnrest_no_auto_start(node_factory):
@@ -185,3 +187,131 @@ def test_clnrest_rpc_method(node_factory):
     l1.connect(l2)
     l2.fundchannel(l1, 100000)
     l2.rpc.pay(invoice)
+
+
+# Tests for websocket are written separately to avoid flake8
+# to complain with the errors F811 like this "F811 redefinition of
+# unused 'message'".
+
+def test_clnrest_websocket_no_rune(node_factory):
+    """Test websocket with default values for options."""
+    # start node l1 with clnrest listenning at `base_url` with certificate `ca_cert_path`
+    rest_port = str(reserve())
+    l1 = node_factory.get_node(options={'rest-port': rest_port})
+    base_url = 'https://127.0.0.1:' + rest_port
+    wait_for(lambda: l1.daemon.is_in_log(r'plugin-clnrest.py: REST server running at ' + base_url))
+    rest_certs_default = Path(l1.rpc.listconfigs()['configs']['rest-certs']['value_str'])
+    ca_cert_path = rest_certs_default / 'ca.pem'
+
+    # http session
+    http_session = requests.Session()
+    http_session.verify = ca_cert_path.as_posix()
+
+    # no rune provided => no websocket connection and no notification received
+    sio = socketio.Client(http_session=http_session)
+    notifications = []
+
+    @sio.event
+    def message(data):
+        notifications.append(data)
+    sio.connect(base_url)
+    sio.sleep(2)
+    l1.rpc.invoice(10000, "label", "description")  # trigger `invoice_creation` notification
+    time.sleep(2)
+    sio.disconnect()
+    assert len(notifications) == 0
+
+
+def test_clnrest_websocket_wrong_rune(node_factory):
+    """Test websocket with default values for options."""
+    # start node l1 with clnrest listenning at `base_url` with certificate `ca_cert_path`
+    rest_port = str(reserve())
+    l1 = node_factory.get_node(options={'rest-port': rest_port})
+    base_url = 'https://127.0.0.1:' + rest_port
+    wait_for(lambda: l1.daemon.is_in_log(r'plugin-clnrest.py: REST server running at ' + base_url))
+    rest_certs_default = Path(l1.rpc.listconfigs()['configs']['rest-certs']['value_str'])
+    ca_cert_path = rest_certs_default / 'ca.pem'
+
+    # http session
+    http_session = requests.Session()
+    http_session.verify = ca_cert_path.as_posix()
+
+    # wrong rune provided => no websocket connection and no notification received
+    http_session.headers.update({"rune": "<WRONG>"})
+    sio = socketio.Client(http_session=http_session)
+    notifications = []
+
+    @sio.event
+    def message(data):
+        notifications.append(data)
+    sio.connect(base_url)
+    sio.sleep(2)
+    l1.rpc.invoice(10000, "label", "description")  # trigger `invoice_creation` notification
+    time.sleep(2)
+    sio.disconnect()
+    assert len(notifications) == 0
+
+
+def test_clnrest_websocket_unrestricted_rune(node_factory):
+    """Test websocket with default values for options."""
+    # start node l1 with clnrest listenning at `base_url` with certificate `ca_cert_path`
+    rest_port = str(reserve())
+    l1 = node_factory.get_node(options={'rest-port': rest_port})
+    base_url = 'https://127.0.0.1:' + rest_port
+    wait_for(lambda: l1.daemon.is_in_log(r'plugin-clnrest.py: REST server running at ' + base_url))
+    rest_certs_default = Path(l1.rpc.listconfigs()['configs']['rest-certs']['value_str'])
+    ca_cert_path = rest_certs_default / 'ca.pem'
+
+    # http session
+    http_session = requests.Session()
+    http_session.verify = ca_cert_path.as_posix()
+
+    # unrestricted rune provided => websocket connection and notifications received
+    rune_unrestricted = l1.rpc.createrune()['rune']
+    http_session.headers.update({"rune": rune_unrestricted})
+    sio = socketio.Client(http_session=http_session)
+    notifications = []
+
+    @sio.event
+    def message(data):
+        notifications.append(data)
+    sio.connect(base_url)
+    sio.sleep(2)
+    l1.rpc.invoice(10000, "label", "description")  # trigger `invoice_creation` notification
+    time.sleep(2)
+    sio.disconnect()
+    assert len([n for n in notifications if n.find('invoice_creation') > 0]) == 1
+
+
+def test_clnrest_websocket_rune_no_getinfo(node_factory):
+    """Test websocket with default values for options."""
+    # start node l1 with clnrest listenning at `base_url` with certificate `ca_cert_path`
+    rest_port = str(reserve())
+    l1 = node_factory.get_node(options={'rest-port': rest_port})
+    base_url = 'https://127.0.0.1:' + rest_port
+    wait_for(lambda: l1.daemon.is_in_log(r'plugin-clnrest.py: REST server running at ' + base_url))
+    rest_certs_default = Path(l1.rpc.listconfigs()['configs']['rest-certs']['value_str'])
+    ca_cert_path = rest_certs_default / 'ca.pem'
+
+    # http session
+    http_session = requests.Session()
+    http_session.verify = ca_cert_path.as_posix()
+
+    # with a rune which doesn't authorized getinfo method => websocket connection and notifications received
+    # For this to work, current clnrest implementation relies on issue #6725
+    # https://github.com/ElementsProject/lightning/issues/6725
+    # Once #6725 fixed, this part of the test fails.
+    rune_no_getinfo = l1.rpc.createrune(restrictions=[["method/getinfo"]])['rune']
+    http_session.headers.update({"rune": rune_no_getinfo})
+    sio = socketio.Client(http_session=http_session)
+    notifications = []
+
+    @sio.event
+    def message(data):
+        notifications.append(data)
+    sio.connect(base_url)
+    sio.sleep(2)
+    l1.rpc.invoice(10000, "label-3", "description-3")  # trigger `invoice_creation` notification
+    time.sleep(2)
+    sio.disconnect()
+    assert len([n for n in notifications if n.find('invoice_creation') > 0]) == 1
