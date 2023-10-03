@@ -125,3 +125,63 @@ def test_clnrest_list_methods(node_factory):
     r = requests.get(base_url + '/v1/list-methods', verify=ca_cert_path)
     assert r.status_code == 500
     assert r.json()['error']['code'] == -1
+
+
+def test_clnrest_rpc_method(node_factory):
+    """Test POST requests on `/v1/<rpc_method>` end points with default values for options."""
+    # start node l1 with clnrest listenning at `base_url` with certificate `ca_cert_path`
+    rest_port = str(reserve())
+    l1 = node_factory.get_node(options={'rest-port': rest_port})
+    base_url = 'https://127.0.0.1:' + rest_port
+    wait_for(lambda: l1.daemon.is_in_log(r'plugin-clnrest.py: REST server running at ' + base_url))
+    rest_certs_default = Path(l1.rpc.listconfigs()['configs']['rest-certs']['value_str'])
+    ca_cert_path = rest_certs_default / 'ca.pem'
+
+    # /v1/getinfo no rune provided in header of the request
+    r = requests.post(base_url + '/v1/getinfo', verify=ca_cert_path)
+    assert r.status_code == 401
+    assert r.json()['error']['code'] == 403
+
+    # /v1/getinfo with a rune which doesn't authorized getinfo method
+    rune_no_getinfo = l1.rpc.createrune(restrictions=[["method/getinfo"]])['rune']
+    r = requests.post(base_url + '/v1/getinfo', headers={'Rune': rune_no_getinfo},
+                      verify=ca_cert_path)
+    assert r.status_code == 401
+    assert r.json()['error']['code'] == 1502
+
+    # /v1/getinfo with a correct rune
+    rune_getinfo = l1.rpc.createrune(restrictions=[["method=getinfo"]])['rune']
+    r = requests.post(base_url + '/v1/getinfo', headers={'Rune': rune_getinfo},
+                      verify=ca_cert_path)
+    assert r.status_code == 201
+    assert r.json()['id'] == l1.info['id']
+
+    # /v1/invoice with a correct rune but missing parameters
+    rune_invoice = l1.rpc.createrune(restrictions=[["method=invoice"]])['rune']
+    r = requests.post(base_url + '/v1/invoice', headers={'Rune': rune_invoice},
+                      verify=ca_cert_path)
+    assert r.status_code == 500
+    assert r.json()['error']['code'] == -32602
+
+    # /v1/invoice with a correct rune but wrong parameters
+    rune_invoice = l1.rpc.createrune(restrictions=[["method=invoice"]])['rune']
+    r = requests.post(base_url + '/v1/invoice', headers={'Rune': rune_invoice},
+                      data={'amount_msat': '<WRONG>',
+                            'label': 'label',
+                            'description': 'description'},
+                      verify=ca_cert_path)
+    assert r.status_code == 500
+    assert r.json()['error']['code'] == -32602
+
+    # l2 pays l1's invoice where the invoice is created with /v1/invoice
+    rune_invoice = l1.rpc.createrune(restrictions=[["method=invoice"]])['rune']
+    r = requests.post(base_url + '/v1/invoice', headers={'Rune': rune_invoice},
+                      data={'amount_msat': '50000000',
+                            'label': 'label',
+                            'description': 'description'},
+                      verify=ca_cert_path)
+    invoice = r.json()['bolt11']
+    l2 = node_factory.get_node()
+    l1.connect(l2)
+    l2.fundchannel(l1, 100000)
+    l2.rpc.pay(invoice)
