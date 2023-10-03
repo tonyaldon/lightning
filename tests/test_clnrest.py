@@ -273,6 +273,58 @@ def test_clnrest_websocket_unrestricted_rune(node_factory):
     assert len([n for n in notifications if n.find('invoice_creation') > 0]) == 1
 
 
+def test_clnrest_websocket_rune_readonly(node_factory):
+    """Test websocket with default values for options."""
+    # start a node with clnrest
+    l1, base_url, ca_cert_path = start_node_with_clnrest(node_factory)
+
+    # http session
+    http_session = requests.Session()
+    http_session.verify = ca_cert_path.as_posix()
+
+    # readonly rune provided => websocket connection and notifications received
+    rune_readonly = l1.rpc.createrune(restrictions="readonly")['rune']
+    http_session.headers.update({"rune": rune_readonly})
+    sio = socketio.Client(http_session=http_session)
+    notifications = []
+
+    @sio.event
+    def message(data):
+        notifications.append(data)
+    sio.connect(base_url)
+    sio.sleep(2)
+    l1.rpc.invoice(10000, "label", "description")  # trigger `invoice_creation` notification
+    time.sleep(2)
+    sio.disconnect()
+    assert len([n for n in notifications if n.find('invoice_creation') > 0]) == 1
+
+
+def test_clnrest_websocket_rune_getinfo(node_factory):
+    """Test websocket with default values for options."""
+    # start a node with clnrest
+    l1, base_url, ca_cert_path = start_node_with_clnrest(node_factory)
+
+    # http session
+    http_session = requests.Session()
+    http_session.verify = ca_cert_path.as_posix()
+
+    # rune authorizing getinfo method provided => websocket connection and notifications received
+    rune_getinfo = l1.rpc.createrune(restrictions=[["method=getinfo"]])['rune']
+    http_session.headers.update({"rune": rune_getinfo})
+    sio = socketio.Client(http_session=http_session)
+    notifications = []
+
+    @sio.event
+    def message(data):
+        notifications.append(data)
+    sio.connect(base_url)
+    sio.sleep(2)
+    l1.rpc.invoice(10000, "label", "description")  # trigger `invoice_creation` notification
+    time.sleep(2)
+    sio.disconnect()
+    assert len([n for n in notifications if n.find('invoice_creation') > 0]) == 1
+
+
 def test_clnrest_websocket_rune_no_getinfo(node_factory):
     """Test websocket with default values for options."""
     # start a node with clnrest
@@ -282,10 +334,7 @@ def test_clnrest_websocket_rune_no_getinfo(node_factory):
     http_session = requests.Session()
     http_session.verify = ca_cert_path.as_posix()
 
-    # with a rune which doesn't authorized getinfo method => websocket connection and notifications received
-    # For this to work, current clnrest implementation relies on issue #6725
-    # https://github.com/ElementsProject/lightning/issues/6725
-    # Once #6725 fixed, this part of the test fails.
+    # with a rune which doesn't authorized getinfo method => no websocket connection and no notification received
     rune_no_getinfo = l1.rpc.createrune(restrictions=[["method/getinfo"]])['rune']
     http_session.headers.update({"rune": rune_no_getinfo})
     sio = socketio.Client(http_session=http_session)
@@ -296,7 +345,7 @@ def test_clnrest_websocket_rune_no_getinfo(node_factory):
         notifications.append(data)
     sio.connect(base_url)
     sio.sleep(2)
-    l1.rpc.invoice(10000, "label-3", "description-3")  # trigger `invoice_creation` notification
+    l1.rpc.invoice(10000, "label", "description")  # trigger `invoice_creation` notification
     time.sleep(2)
     sio.disconnect()
-    assert len([n for n in notifications if n.find('invoice_creation') > 0]) == 1
+    assert len([n for n in notifications if n.find('invoice_creation') > 0]) == 0
