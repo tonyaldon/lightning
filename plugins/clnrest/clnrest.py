@@ -18,7 +18,7 @@ try:
     from multiprocessing import Process, Queue
     from flask_socketio import SocketIO, disconnect
     from utilities.generate_certs import generate_certs
-    from utilities.shared import set_config, verify_rune
+    from utilities.shared import set_config
     from utilities.rpc_routes import rpcns
     from utilities.rpc_plugin import plugin
 except ModuleNotFoundError as err:
@@ -80,20 +80,21 @@ def handle_message(message):
 @socketio.on("connect")
 def ws_connect():
     try:
-        plugin.log("Client Connecting...", "debug")
-        is_valid_rune = verify_rune(plugin, request)
+        rune = request.headers.get("rune", None)
+        if rune is None:
+            raise Exception('{ "error": {"code": 403, "message": "Not authorized: Missing rune"} }')
 
-        if "error" in is_valid_rune:
-            # Logging as error/warn emits the event for all clients
-            plugin.log(f"Error: {is_valid_rune}", "info")
-            raise Exception(is_valid_rune)
+        # Here we rely on issue #6725: https://github.com/ElementsProject/lightning/issues/6725
+        # Once fixed, only unrestricted runes will work with that code.
+        # There is test that passes but that will fail once #6725 fixed.
+        plugin.rpc.call("checkrune", {"rune": rune, "method": "", "params": {}})
 
-        plugin.log("Client Connected", "debug")
+        plugin.log("websocket connection established", "debug")
         return True
 
     except Exception as err:
         # Logging as error/warn emits the event for all clients
-        plugin.log(f"{err}", "info")
+        plugin.log(f"websocket connection failed: {err}", "info")
         disconnect()
 
 
