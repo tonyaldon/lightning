@@ -83,15 +83,9 @@ def ws_connect():
         rune = request.headers.get("rune", None)
         if rune is None:
             raise Exception('{ "error": {"code": 403, "message": "Not authorized: Missing rune"} }')
-
-        # Here we rely on issue #6725: https://github.com/ElementsProject/lightning/issues/6725
-        # Once fixed, only unrestricted runes will work with that code.
-        # There is test that passes but that will fail once #6725 fixed.
-        plugin.rpc.call("checkrune", {"rune": rune, "method": "", "params": {}})
-
+        plugin.rpc.call("checkrune", {"rune": rune, "method": "getinfo"})
         plugin.log("websocket connection established", "debug")
         return True
-
     except Exception as err:
         # Logging as error/warn emits the event for all clients
         plugin.log(f"websocket connection failed: {err}", "info")
