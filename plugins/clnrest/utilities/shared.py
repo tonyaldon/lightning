@@ -35,7 +35,7 @@ def call_rpc_method(plugin, rpc_method, payload):
                 return response
 
     except Exception as err:
-        plugin.log(f"Error: {err}", "error")
+        plugin.log(f"Error: {err}", "debug")
         if "error" in str(err).lower():
             match_err_obj = re.search(r'"error":\{.*?\}', str(err))
             if match_err_obj is not None:

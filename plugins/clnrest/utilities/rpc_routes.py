@@ -62,5 +62,5 @@ class RpcMethodResource(Resource):
             return call_rpc_method(plugin, rpc_method, payload), 201
 
         except Exception as err:
-            plugin.log(f"Error: {err}", "error")
+            plugin.log(f"Error: {err}", "debug")
             return json5.loads(str(err)), 500
