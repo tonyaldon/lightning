@@ -198,16 +198,17 @@ def test_clnrest_rpc_method(node_factory):
 # to complain with the errors F811 like this "F811 redefinition of
 # unused 'message'".
 
-def test_clnrest_websocket_no_rune(node_factory):
-    """Test websocket with default values for options."""
-    # start a node with clnrest
-    l1, base_url, ca_cert_path = start_node_with_clnrest(node_factory)
+def notifications_received_via_websocket(l1, base_url, http_session):
+    """Return the list of notifications received by the websocket client.
 
-    # http session
-    http_session = requests.Session()
-    http_session.verify = ca_cert_path.as_posix()
+    We try to connect to the websocket server running at `base_url`
+    with `http_session` parameters.  Then we create an invoice on the node:
 
-    # no rune provided => no websocket connection and no notification received
+    - if we were effectively connected, we received an `invoice_creation`
+      notification via websocket that should be in the list of notifications
+      we return.
+    - if we couldn't connect to the websocket server, the notification list
+      we return is empty."""
     sio = socketio.Client(http_session=http_session)
     notifications = []
 
@@ -219,6 +220,20 @@ def test_clnrest_websocket_no_rune(node_factory):
     l1.rpc.invoice(10000, "label", "description")  # trigger `invoice_creation` notification
     time.sleep(2)
     sio.disconnect()
+    return notifications
+
+
+def test_clnrest_websocket_no_rune(node_factory):
+    """Test websocket with default values for options."""
+    # start a node with clnrest
+    l1, base_url, ca_cert_path = start_node_with_clnrest(node_factory)
+
+    # http session
+    http_session = requests.Session()
+    http_session.verify = ca_cert_path.as_posix()
+
+    # no rune provided => no websocket connection and no notification received
+    notifications = notifications_received_via_websocket(l1, base_url, http_session)
     assert len(notifications) == 0
 
 
@@ -233,17 +248,7 @@ def test_clnrest_websocket_wrong_rune(node_factory):
 
     # wrong rune provided => no websocket connection and no notification received
     http_session.headers.update({"rune": "<WRONG>"})
-    sio = socketio.Client(http_session=http_session)
-    notifications = []
-
-    @sio.event
-    def message(data):
-        notifications.append(data)
-    sio.connect(base_url)
-    sio.sleep(2)
-    l1.rpc.invoice(10000, "label", "description")  # trigger `invoice_creation` notification
-    time.sleep(2)
-    sio.disconnect()
+    notifications = notifications_received_via_websocket(l1, base_url, http_session)
     assert len(notifications) == 0
 
 
@@ -259,17 +264,7 @@ def test_clnrest_websocket_unrestricted_rune(node_factory):
     # unrestricted rune provided => websocket connection and notifications received
     rune_unrestricted = l1.rpc.createrune()['rune']
     http_session.headers.update({"rune": rune_unrestricted})
-    sio = socketio.Client(http_session=http_session)
-    notifications = []
-
-    @sio.event
-    def message(data):
-        notifications.append(data)
-    sio.connect(base_url)
-    sio.sleep(2)
-    l1.rpc.invoice(10000, "label", "description")  # trigger `invoice_creation` notification
-    time.sleep(2)
-    sio.disconnect()
+    notifications = notifications_received_via_websocket(l1, base_url, http_session)
     assert len([n for n in notifications if n.find('invoice_creation') > 0]) == 1
 
 
@@ -285,17 +280,7 @@ def test_clnrest_websocket_rune_readonly(node_factory):
     # readonly rune provided => websocket connection and notifications received
     rune_readonly = l1.rpc.createrune(restrictions="readonly")['rune']
     http_session.headers.update({"rune": rune_readonly})
-    sio = socketio.Client(http_session=http_session)
-    notifications = []
-
-    @sio.event
-    def message(data):
-        notifications.append(data)
-    sio.connect(base_url)
-    sio.sleep(2)
-    l1.rpc.invoice(10000, "label", "description")  # trigger `invoice_creation` notification
-    time.sleep(2)
-    sio.disconnect()
+    notifications = notifications_received_via_websocket(l1, base_url, http_session)
     assert len([n for n in notifications if n.find('invoice_creation') > 0]) == 1
 
 
@@ -311,17 +296,7 @@ def test_clnrest_websocket_rune_getinfo(node_factory):
     # rune authorizing getinfo method provided => websocket connection and notifications received
     rune_getinfo = l1.rpc.createrune(restrictions=[["method=getinfo"]])['rune']
     http_session.headers.update({"rune": rune_getinfo})
-    sio = socketio.Client(http_session=http_session)
-    notifications = []
-
-    @sio.event
-    def message(data):
-        notifications.append(data)
-    sio.connect(base_url)
-    sio.sleep(2)
-    l1.rpc.invoice(10000, "label", "description")  # trigger `invoice_creation` notification
-    time.sleep(2)
-    sio.disconnect()
+    notifications = notifications_received_via_websocket(l1, base_url, http_session)
     assert len([n for n in notifications if n.find('invoice_creation') > 0]) == 1
 
 
@@ -337,15 +312,5 @@ def test_clnrest_websocket_rune_no_getinfo(node_factory):
     # with a rune which doesn't authorized getinfo method => no websocket connection and no notification received
     rune_no_getinfo = l1.rpc.createrune(restrictions=[["method/getinfo"]])['rune']
     http_session.headers.update({"rune": rune_no_getinfo})
-    sio = socketio.Client(http_session=http_session)
-    notifications = []
-
-    @sio.event
-    def message(data):
-        notifications.append(data)
-    sio.connect(base_url)
-    sio.sleep(2)
-    l1.rpc.invoice(10000, "label", "description")  # trigger `invoice_creation` notification
-    time.sleep(2)
-    sio.disconnect()
+    notifications = notifications_received_via_websocket(l1, base_url, http_session)
     assert len([n for n in notifications if n.find('invoice_creation') > 0]) == 0
