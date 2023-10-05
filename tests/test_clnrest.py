@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 import socketio
 import time
+import tempfile
 
 
 def test_clnrest_no_auto_start(node_factory):
@@ -314,3 +315,81 @@ def test_clnrest_websocket_rune_no_getinfo(node_factory):
     http_session.headers.update({"rune": rune_no_getinfo})
     notifications = notifications_received_via_websocket(l1, base_url, http_session)
     assert len([n for n in notifications if n.find('invoice_creation') > 0]) == 0
+
+
+def test_clnrest_http_headers(node_factory):
+    """Test HTTP headers set with `rest-csp` and `rest-cors-origins` options."""
+    # start a node with clnrest
+    l1, base_url, ca_cert_path = start_node_with_clnrest(node_factory)
+
+    # Default values for `rest-csp` and `rest-cors-origins` options
+    r = requests.get(base_url + '/v1/list-methods', verify=ca_cert_path)
+    assert r.headers['Content-Security-Policy'] == "default-src 'self'; font-src 'self'; img-src 'self' data:; frame-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';"
+    assert r.headers['Access-Control-Allow-Origin'] == '*'
+
+    # Custom values for `rest-csp` and `rest-cors-origins` options
+    rest_port = str(reserve())
+    l2 = node_factory.get_node(options={
+        'rest-port': rest_port,
+        'rest-csp': "default-src 'self'; font-src 'self'; img-src 'self'; frame-src 'self'; style-src 'self'; script-src 'self';",
+        'rest-cors-origins': ['https://localhost:5500', 'http://192.168.1.30:3030', 'http://192.168.1.10:1010']
+    })
+    base_url = 'https://127.0.0.1:' + rest_port
+    wait_for(lambda: l2.daemon.is_in_log(r'plugin-clnrest.py: REST server running at ' + base_url))
+    rest_certs_default = Path(l2.rpc.listconfigs()['configs']['rest-certs']['value_str'])
+    ca_cert_path = rest_certs_default / 'ca.pem'
+
+    r = requests.get(base_url + '/v1/list-methods',
+                     headers={'Origin': 'http://192.168.1.30:3030'},
+                     verify=ca_cert_path)
+    assert r.headers['Content-Security-Policy'] == "default-src 'self'; font-src 'self'; img-src 'self'; frame-src 'self'; style-src 'self'; script-src 'self';"
+    assert r.headers['Access-Control-Allow-Origin'] == 'http://192.168.1.30:3030'
+    r = requests.get(base_url + '/v1/list-methods',
+                     headers={'Origin': 'http://192.168.1.10:1010'},
+                     verify=ca_cert_path)
+    assert r.headers['Access-Control-Allow-Origin'] == 'http://192.168.1.10:1010'
+
+
+def test_clnrest_options(node_factory):
+    """Test startup options `rest-host`, `rest-protocol` and `rest-certs`."""
+    # with `http` protocol and custom host
+    rest_port = str(reserve())
+    rest_host = '127.0.0.2'
+    rest_protocol = 'http'
+    l1 = node_factory.get_node(options={'rest-port': rest_port,
+                                        'rest-host': rest_host,
+                                        'rest-protocol': rest_protocol})
+    base_url = rest_protocol + '://' + rest_host + ':' + rest_port
+    wait_for(lambda: l1.daemon.is_in_log(r'plugin-clnrest.py: REST server running at ' + base_url))
+
+    # /v1/list-methods
+    r = requests.get(base_url + '/v1/list-methods')
+    assert r.status_code == 200
+    # /v1/getinfo
+    rune_getinfo = l1.rpc.createrune(restrictions=[["method=getinfo"]])['rune']
+    r = requests.post(base_url + '/v1/getinfo', headers={'Rune': rune_getinfo})
+    assert r.status_code == 201
+
+    # start node l1 with clnrest listenning at `base_url` with certificate `ca_cert_path`
+    rest_port = str(reserve())
+    rest_host = '127.0.0.2'
+    rest_protocol = 'https'
+    rest_certs = tempfile.mkdtemp(prefix='ltests-', dir=os.getenv("TEST_DIR", "/tmp"))
+    l1 = node_factory.get_node(options={'rest-port': rest_port,
+                                        'rest-host': rest_host,
+                                        'rest-protocol': rest_protocol,
+                                        'rest-certs': rest_certs})
+    base_url = rest_protocol + '://' + rest_host + ':' + rest_port
+    wait_for(lambda: l1.daemon.is_in_log(r'plugin-clnrest.py: REST server running at ' + base_url))
+    rest_certs_default = Path(l1.rpc.listconfigs()['configs']['rest-certs']['value_str'])
+    ca_cert_path = rest_certs_default / 'ca.pem'
+
+    assert rest_certs_default == Path(rest_certs)
+    # /v1/list-methods
+    r = requests.get(base_url + '/v1/list-methods', verify=ca_cert_path)
+    assert r.status_code == 200
+    # # /v1/getinfo
+    rune_getinfo = l1.rpc.createrune(restrictions=[["method=getinfo"]])['rune']
+    r = requests.post(base_url + '/v1/getinfo', headers={'Rune': rune_getinfo},
+                      verify=ca_cert_path)
+    assert r.status_code == 201
