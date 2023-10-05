@@ -1,7 +1,5 @@
-import json5
 from flask import request, make_response
 from flask_restx import Namespace, Resource
-from .shared import call_rpc_method, verify_rune
 from .rpc_plugin import plugin
 
 methods_list = []
@@ -41,26 +39,27 @@ class RpcMethodResource(Resource):
     @rpcns.response(500, "Server error")
     def post(self, rpc_method):
         """Call any valid core lightning method (check list-methods response)"""
-        try:
-            is_valid_rune = verify_rune(plugin, request)
-
-            if "error" in is_valid_rune:
-                plugin.log(f"Error: {is_valid_rune}", "error")
-                raise Exception(is_valid_rune)
-
-        except Exception as err:
-            return json5.loads(str(err)), 401
-
-        try:
-            if request.is_json:
-                if len(request.data) != 0:
-                    payload = request.get_json()
-                else:
-                    payload = {}
+        if request.is_json:
+            if len(request.data) != 0:
+                rpc_params = request.get_json()
             else:
-                payload = request.form.to_dict()
-            return call_rpc_method(plugin, rpc_method, payload), 201
+                rpc_params = {}
+        else:
+            rpc_params = request.form.to_dict()
 
+        try:
+            rune = request.headers.get("rune", None)
+            if rune is None:
+                err = {"code": 403, "message": "Not authorized: Missing rune"}
+                plugin.log(f"Error: {repr(err)}", "debug")
+                return {"error": err}, 401
+            plugin.rpc.call("checkrune", {"rune": rune, "method": rpc_method, "params": rpc_params})
         except Exception as err:
             plugin.log(f"Error: {err}", "debug")
-            return json5.loads(str(err)), 500
+            return {"error": err.error}, 401
+
+        try:
+            return plugin.rpc.call(rpc_method, rpc_params), 201
+        except Exception as err:
+            plugin.log(f"Error: {err}", "debug")
+            return {"error": err.error}, 500

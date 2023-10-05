@@ -1,6 +1,3 @@
-import re
-import json
-
 CERTS_PATH, REST_PROTOCOL, REST_HOST, REST_PORT, REST_CSP, REST_CORS_ORIGINS = "", "", "", "", "", []
 
 
@@ -19,51 +16,3 @@ def set_config(options):
         REST_CORS_ORIGINS.append(str(origin))
 
     return None
-
-
-def call_rpc_method(plugin, rpc_method, payload):
-    try:
-        response = plugin.rpc.call(rpc_method, payload)
-        if '"error":' in str(response).lower():
-            raise Exception(response)
-        else:
-            plugin.log(f"{response}", "debug")
-            if '"result":' in str(response).lower():
-                # Use json5.loads ONLY when necessary, as it increases processing time significantly
-                return json.loads(response)["result"]
-            else:
-                return response
-
-    except Exception as err:
-        plugin.log(f"Error: {err}", "debug")
-        if "error" in str(err).lower():
-            match_err_obj = re.search(r'"error":\{.*?\}', str(err))
-            if match_err_obj is not None:
-                err = "{" + match_err_obj.group() + "}"
-            else:
-                match_err_str = re.search(r"error: \{.*?\}", str(err))
-                if match_err_str is not None:
-                    err = "{" + match_err_str.group() + "}"
-        raise Exception(err)
-
-
-def verify_rune(plugin, request):
-    rune = request.headers.get("rune", None)
-
-    if rune is None:
-        raise Exception('{ "error": {"code": 403, "message": "Not authorized: Missing rune"} }')
-
-    if request.is_json:
-        if len(request.data) != 0:
-            rpc_params = request.get_json()
-        else:
-            rpc_params = {}
-    else:
-        rpc_params = request.form.to_dict()
-
-    rpc_method = request.view_args["rpc_method"]
-
-    return call_rpc_method(plugin, "checkrune",
-                           {"rune": rune,
-                            "method": rpc_method,
-                            "params": rpc_params})
