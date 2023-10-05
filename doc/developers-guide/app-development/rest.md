@@ -402,7 +402,7 @@ Specifically, two things can happen if you try to use
    Example CSP:
 
    ```
-   rest-csp=default-src 'self'; font-src 'self'; img-src 'self'; frame-src 'self'; style-src 'self'; script-src 'self';
+   default-src 'self'; font-src 'self'; img-src 'self'; frame-src 'self'; style-src 'self'; script-src 'self';
    ```
 
 - `--rest-cors-origins`:   Define multiple origins which are allowed

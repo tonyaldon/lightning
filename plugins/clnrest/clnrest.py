@@ -18,7 +18,6 @@ try:
     from multiprocessing import Process, Queue
     from flask_socketio import SocketIO, disconnect
     from utilities.generate_certs import generate_certs
-    from utilities.shared import set_config
     from utilities.rpc_routes import rpcns
     from utilities.rpc_plugin import plugin
 except ModuleNotFoundError as err:
@@ -34,12 +33,12 @@ multiprocessing.set_start_method('fork')
 
 
 def check_origin(origin):
-    from utilities.shared import REST_CORS_ORIGINS
+    rest_cors_origins = plugin.options["rest-cors-origins"]["value"]
     is_whitelisted = False
-    if REST_CORS_ORIGINS[0] == "*":
+    if rest_cors_origins[0] == "*":
         is_whitelisted = True
     else:
-        for whitelisted_origin in REST_CORS_ORIGINS:
+        for whitelisted_origin in rest_cors_origins:
             try:
                 does_match = bool(re.compile(whitelisted_origin).match(origin))
                 is_whitelisted = is_whitelisted or does_match
@@ -93,13 +92,12 @@ def ws_connect():
 
 
 def create_app():
-    from utilities.shared import REST_CORS_ORIGINS
     global app
     app.config["SECRET_KEY"] = os.urandom(24).hex()
     authorizations = {
         "rune": {"type": "apiKey", "in": "header", "name": "Rune"}
     }
-    CORS(app, resources={r"/*": {"origins": REST_CORS_ORIGINS}})
+    CORS(app, resources={r"/*": {"origins": plugin.options["rest-cors-origins"]["value"]}})
     blueprint = Blueprint("api", __name__)
     api = Api(blueprint, version="1.0", title="Core Lightning Rest", description="Core Lightning REST API Swagger", authorizations=authorizations, security=["rune"])
     app.register_blueprint(blueprint)
@@ -109,46 +107,48 @@ def create_app():
 @app.after_request
 def add_csp_headers(response):
     try:
-        from utilities.shared import REST_CSP
-        response.headers['Content-Security-Policy'] = REST_CSP.replace('\\', '').replace("[\"", '').replace("\"]", '')
+        response.headers['Content-Security-Policy'] = plugin.options["rest-csp"]["value"]
         return response
     except Exception as err:
         plugin.log(f"Error from rest-csp config: {err}", "info")
 
 
 def set_application_options(plugin):
-    from utilities.shared import CERTS_PATH, REST_PROTOCOL, REST_HOST, REST_PORT
-    plugin.log(f"REST Server is starting at {REST_PROTOCOL}://{REST_HOST}:{REST_PORT}", "debug")
-    if REST_PROTOCOL == "http":
+    rest_port = plugin.options["rest-port"]["value"]
+    rest_host = plugin.options["rest-host"]["value"]
+    rest_protocol = plugin.options["rest-protocol"]["value"]
+    rest_certs = plugin.options["rest-certs"]["value"]
+    plugin.log(f"REST Server is starting at {rest_protocol}://{rest_host}:{rest_port}", "debug")
+    if rest_protocol == "http":
         # Assigning only one worker due to added complexity between gunicorn's multiple worker process forks
         # and websocket connection's persistance with a single worker.
         options = {
-            "bind": f"{REST_HOST}:{REST_PORT}",
+            "bind": f"{rest_host}:{rest_port}",
             "workers": 1,
             "worker_class": "geventwebsocket.gunicorn.workers.GeventWebSocketWorker",
             "timeout": 60,
             "loglevel": "warning",
         }
     else:
-        cert_file = Path(f"{CERTS_PATH}/client.pem")
-        key_file = Path(f"{CERTS_PATH}/client-key.pem")
+        cert_file = Path(f"{rest_certs}/client.pem")
+        key_file = Path(f"{rest_certs}/client-key.pem")
         if not cert_file.is_file() or not key_file.is_file():
-            plugin.log(f"Certificate not found at {CERTS_PATH}. Generating a new certificate!", "debug")
-            generate_certs(plugin, REST_HOST, CERTS_PATH)
+            plugin.log(f"Certificate not found at {rest_certs}. Generating a new certificate!", "debug")
+            generate_certs(plugin, rest_host, rest_certs)
         try:
-            plugin.log(f"Certs Path: {CERTS_PATH}", "debug")
+            plugin.log(f"Certs Path: {rest_certs}", "debug")
         except Exception as err:
-            raise Exception(f"{err}: Certificates do not exist at {CERTS_PATH}")
+            raise Exception(f"{err}: Certificates do not exist at {rest_certs}")
         # Assigning only one worker due to added complexity between gunicorn's multiple worker process forks
         # and websocket connection's persistance with a single worker.
         options = {
-            "bind": f"{REST_HOST}:{REST_PORT}",
+            "bind": f"{rest_host}:{rest_port}",
             "workers": 1,
             "worker_class": "geventwebsocket.gunicorn.workers.GeventWebSocketWorker",
             "timeout": 60,
             "loglevel": "warning",
-            "certfile": f"{CERTS_PATH}/client.pem",
-            "keyfile": f"{CERTS_PATH}/client-key.pem",
+            "certfile": cert_file.as_posix(),
+            "keyfile": key_file.as_posix(),
             "ssl_version": ssl.PROTOCOL_TLSv1_2
         }
     return options
@@ -156,10 +156,12 @@ def set_application_options(plugin):
 
 class CLNRestApplication(BaseApplication):
     def __init__(self, app, options=None):
-        from utilities.shared import REST_PROTOCOL, REST_HOST, REST_PORT
+        rest_port = plugin.options["rest-port"]["value"]
+        rest_host = plugin.options["rest-host"]["value"]
+        rest_protocol = plugin.options["rest-protocol"]["value"]
         self.application = app
         self.options = options or {}
-        plugin.log(f"REST server running at {REST_PROTOCOL}://{REST_HOST}:{REST_PORT}", "info")
+        plugin.log(f"REST server running at {rest_protocol}://{rest_host}:{rest_port}", "info")
         super().__init__()
 
     def load_config(self):
@@ -181,26 +183,24 @@ def worker():
 
 def start_server():
     global jobs
-    from utilities.shared import REST_PORT
-    if REST_PORT in jobs:
+    rest_port = plugin.options["rest-port"]["value"]
+    if rest_port in jobs:
         return False, "server already running"
     p = Process(
         target=worker,
         args=[],
-        name="server on port {}".format(REST_PORT),
+        name="server on port {}".format(rest_port),
     )
     p.daemon = True
-    jobs[REST_PORT] = p
+    jobs[rest_port] = p
     p.start()
     return True
 
 
 @plugin.init()
 def init(options, configuration, plugin):
-    # We require options before we open a port.
-    err = set_config(options)
-    if err:
-        return {'disable': err}
+    if "rest-port" not in options:
+        return {"disable": "`rest-port` option is not configured"}
     start_server()
 
 
