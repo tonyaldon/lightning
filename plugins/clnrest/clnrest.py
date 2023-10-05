@@ -9,17 +9,20 @@ try:
     import multiprocessing
     from gunicorn import glogging  # noqa: F401
     from gunicorn.workers import sync  # noqa: F401
-
+    from pyln.client import Plugin
     from pathlib import Path
-    from flask import Flask, request, Blueprint
-    from flask_restx import Api
+    from flask import Flask, request, Blueprint, make_response
+    from flask_restx import Api, Namespace, Resource
     from flask_cors import CORS
     from gunicorn.app.base import BaseApplication
     from multiprocessing import Process, Queue
     from flask_socketio import SocketIO, disconnect
-    from utilities.generate_certs import generate_certs
-    from utilities.rpc_routes import rpcns
-    from utilities.rpc_plugin import plugin
+    import ipaddress
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+    from cryptography.hazmat.primitives import serialization, hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    import datetime
 except ModuleNotFoundError as err:
     # OK, something is not installed?
     import json
@@ -91,26 +94,132 @@ def ws_connect():
         disconnect()
 
 
-def create_app():
-    global app
-    app.config["SECRET_KEY"] = os.urandom(24).hex()
-    authorizations = {
-        "rune": {"type": "apiKey", "in": "header", "name": "Rune"}
-    }
-    CORS(app, resources={r"/*": {"origins": plugin.options["rest-cors-origins"]["value"]}})
-    blueprint = Blueprint("api", __name__)
-    api = Api(blueprint, version="1.0", title="Core Lightning Rest", description="Core Lightning REST API Swagger", authorizations=authorizations, security=["rune"])
-    app.register_blueprint(blueprint)
-    api.add_namespace(rpcns, path="/v1")
+# routes
+
+methods_list = []
+rpcns = Namespace("RPCs")
+payload_model = rpcns.model("Payload", {}, None, False)
 
 
-@app.after_request
-def add_csp_headers(response):
-    try:
-        response.headers['Content-Security-Policy'] = plugin.options["rest-csp"]["value"]
+@rpcns.route("/list-methods")
+class ListMethodsResource(Resource):
+    @rpcns.response(200, "Success")
+    @rpcns.response(500, "Server error")
+    def get(self):
+        """Get the list of all valid rpc methods, useful for Swagger to get human readable list without calling lightning-cli help"""
+        try:
+            help_response = plugin.rpc.call("help", [])
+        except Exception as err:
+            plugin.log(f"Error: {err}", "debug")
+            return {"error": err.error}, 500
+
+        commands = help_response["help"]
+        line = "\n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n\n"
+        html_content = line.join(
+            "Command: {}\n Category: {}\n Description: {}\n Verbose: {}\n".format(
+                cmd["command"], cmd["category"], cmd["description"], cmd["verbose"])
+            for cmd in commands)
+        response = make_response(html_content)
+        response.headers["Content-Type"] = "text/html"
         return response
-    except Exception as err:
-        plugin.log(f"Error from rest-csp config: {err}", "info")
+
+
+@rpcns.route("/<rpc_method>")
+class RpcMethodResource(Resource):
+    @rpcns.doc(security=[{"rune": []}])
+    @rpcns.doc(params={"rpc_method": (f"Name of the RPC method to be called")})
+    @rpcns.expect(payload_model, validate=False)
+    @rpcns.response(201, "Success")
+    @rpcns.response(500, "Server error")
+    def post(self, rpc_method):
+        """Call any valid core lightning method (check list-methods response)"""
+        if request.is_json:
+            if len(request.data) != 0:
+                rpc_params = request.get_json()
+            else:
+                rpc_params = {}
+        else:
+            rpc_params = request.form.to_dict()
+
+        try:
+            rune = request.headers.get("rune", None)
+            if rune is None:
+                err = {"code": 403, "message": "Not authorized: Missing rune"}
+                plugin.log(f"Error: {repr(err)}", "debug")
+                return {"error": err}, 401
+            plugin.rpc.call("checkrune", {"rune": rune, "method": rpc_method, "params": rpc_params})
+        except Exception as err:
+            plugin.log(f"Error: {err}", "debug")
+            return {"error": err.error}, 401
+
+        try:
+            return plugin.rpc.call(rpc_method, rpc_params), 201
+        except Exception as err:
+            plugin.log(f"Error: {err}", "debug")
+            return {"error": err.error}, 500
+
+
+# certs
+
+def save_cert(entity_type, cert, private_key, certs_path):
+    """Serialize and save certificates and keys.
+    `entity_type` is either "ca", "client" or "server"."""
+    with open(os.path.join(certs_path, f"{entity_type}.pem"), "wb") as f:
+        f.write(cert.public_bytes(serialization.Encoding.PEM))
+    with open(os.path.join(certs_path, f"{entity_type}-key.pem"), "wb") as f:
+        f.write(private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()))
+
+
+def create_cert_builder(subject_name, issuer_name, public_key, rest_host):
+    return (
+        x509.CertificateBuilder()
+        .subject_name(subject_name)
+        .issuer_name(issuer_name)
+        .public_key(public_key)
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.datetime.utcnow())
+        .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=10 * 365))  # Ten years validity
+        .add_extension(x509.SubjectAlternativeName([
+            x509.DNSName("cln"),
+            x509.DNSName("localhost"),
+            x509.IPAddress(ipaddress.IPv4Address(rest_host))
+        ]), critical=False)
+    )
+
+
+def generate_cert(entity_type, ca_subject, ca_private_key, rest_host, certs_path):
+    # Generate Key pair
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    public_key = private_key.public_key()
+
+    # Generate Certificates
+    if isinstance(ca_subject, x509.Name):
+        subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"cln rest {entity_type}")])
+        cert_builder = create_cert_builder(subject, ca_subject, public_key, rest_host)
+        cert = cert_builder.sign(ca_private_key, hashes.SHA256())
+    else:
+        ca_subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u"cln Root REST CA")])
+        ca_private_key, ca_public_key = private_key, public_key
+        cert_builder = create_cert_builder(ca_subject, ca_subject, ca_public_key, rest_host)
+        cert = (
+            cert_builder
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .sign(ca_private_key, hashes.SHA256())
+        )
+
+    os.makedirs(certs_path, exist_ok=True)
+    save_cert(entity_type, cert, private_key, certs_path)
+    return ca_subject, ca_private_key
+
+
+def generate_certs(plugin, rest_host, certs_path):
+    ca_subject, ca_private_key = generate_cert("ca", None, None, rest_host, certs_path)
+    generate_cert("client", ca_subject, ca_private_key, rest_host, certs_path)
+    generate_cert("server", ca_subject, ca_private_key, rest_host, certs_path)
+    plugin.log(f"Certificates Generated!", "debug")
 
 
 def set_application_options(plugin):
@@ -154,6 +263,30 @@ def set_application_options(plugin):
     return options
 
 
+# App
+
+def create_app():
+    global app
+    app.config["SECRET_KEY"] = os.urandom(24).hex()
+    authorizations = {
+        "rune": {"type": "apiKey", "in": "header", "name": "Rune"}
+    }
+    CORS(app, resources={r"/*": {"origins": plugin.options["rest-cors-origins"]["value"]}})
+    blueprint = Blueprint("api", __name__)
+    api = Api(blueprint, version="1.0", title="Core Lightning Rest", description="Core Lightning REST API Swagger", authorizations=authorizations, security=["rune"])
+    app.register_blueprint(blueprint)
+    api.add_namespace(rpcns, path="/v1")
+
+
+@app.after_request
+def add_csp_headers(response):
+    try:
+        response.headers['Content-Security-Policy'] = plugin.options["rest-csp"]["value"]
+        return response
+    except Exception as err:
+        plugin.log(f"Error from rest-csp config: {err}", "info")
+
+
 class CLNRestApplication(BaseApplication):
     def __init__(self, app, options=None):
         rest_port = plugin.options["rest-port"]["value"]
@@ -195,6 +328,20 @@ def start_server():
     jobs[rest_port] = p
     p.start()
     return True
+
+
+# plugin
+
+plugin = Plugin(autopatch=False)
+
+rest_certs = Path(os.getcwd()) / 'clnrest'
+
+plugin.add_option(name="rest-certs", default=rest_certs.as_posix(), description="Path for certificates (for https)", opt_type="string", deprecated=False)
+plugin.add_option(name="rest-protocol", default="https", description="REST server protocol", opt_type="string", deprecated=False)
+plugin.add_option(name="rest-host", default="127.0.0.1", description="REST server host", opt_type="string", deprecated=False)
+plugin.add_option(name="rest-port", default=None, description="REST server port to listen", opt_type="int", deprecated=False)
+plugin.add_option(name="rest-cors-origins", default="*", description="Cross origin resource sharing origins", opt_type="string", deprecated=False, multi=True)
+plugin.add_option(name="rest-csp", default="default-src 'self'; font-src 'self'; img-src 'self' data:; frame-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';", description="Content security policy (CSP) for the server", opt_type="string", deprecated=False)
 
 
 @plugin.init()
