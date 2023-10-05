@@ -26,15 +26,15 @@ sudo tar -xvf <release>.tar.xz -C /usr/local --strip-components=2
 You will need some Python packages if you want to use clnrest.  Unfortunately there are some Python packages which are not packaged in Ubuntu, and so you will need to force installation of these (I recommend --user which will install them in your own .local directory, so at least you won't run the risk of breaking Python globally!).
 
 ```
-sudo apt-get install python3-json5 python3-flask python3-gunicorn
-pip3 install --user flask_restx pyln-client
+sudo apt-get install python3-flask python3-gunicorn
+pip3 install --user flask_restx pyln-client flask-socketio gevent gevent-websocket
 ```
 
 If you're on a different distribution or OS, you can compile the source by following the instructions from [Installing from Source](<>).
 
 # Docker
 
-To install the Docker image for the latest stable release: 
+To install the Docker image for the latest stable release:
 
 ```shell
 docker pull elementsproject/lightningd:latest
@@ -50,7 +50,7 @@ See all of the docker images for Core Lightning on [Docker Hub](https://hub.dock
 
 # Third-party apps
 
-For a GUI experience, you can install and use Core Lightning via a variety of third-party applications such as [Ride the Lightning](https://www.ridethelightning.info/), [Umbrel](https://getumbrel.com/), [BTCPayServer](https://btcpayserver.org/), [Raspiblitz](https://raspiblitz.org/), [Embassy](https://start9.com/). 
+For a GUI experience, you can install and use Core Lightning via a variety of third-party applications such as [Ride the Lightning](https://www.ridethelightning.info/), [Umbrel](https://getumbrel.com/), [BTCPayServer](https://btcpayserver.org/), [Raspiblitz](https://raspiblitz.org/), [Embassy](https://start9.com/).
 
 Core Lightning is also available on nixOS via the [nix-bitcoin](https://github.com/fort-nix/nix-bitcoin/) project.
 
@@ -138,8 +138,8 @@ make
 sudo make install
 ```
 
-> 📘 
-> 
+> 📘
+>
 > If you want disable Rust because you do not want use it or simple you do not want the grpc-plugin, you can use `./configure --disable-rust`.
 
 To build core lightning for development purpose you can use the following commands:
@@ -261,15 +261,15 @@ If you want to compile locally and fiddle with compile time options:
 
 See `/usr/ports/net-p2p/c-lightning/Makefile` for instructions on how to build from an arbitrary git commit, instead of the latest release tag.
 
-> 📘 
-> 
+> 📘
+>
 > Make sure you've set an utf-8 locale, e.g. `export LC_CTYPE=en_US.UTF-8`, otherwise manpage installation may fail.
 
 Running lightning:
 
 Configure bitcoind, if not already: add `rpcuser=<foo>` and `rpcpassword=<bar>` to `/usr/local/etc/bitcoin.conf`, maybe also `testnet=1`.
 
-Configure lightningd: copy `/usr/local/etc/lightningd-bitcoin.conf.sample` to  
+Configure lightningd: copy `/usr/local/etc/lightningd-bitcoin.conf.sample` to
 `/usr/local/etc/lightningd-bitcoin.conf` and edit according to your needs.
 
 ```shell
@@ -395,8 +395,8 @@ $ poetry run make
 
 Running lightning:
 
-> 📘 
-> 
+> 📘
+>
 > Edit your `~/Library/Application\ Support/Bitcoin/bitcoin.conf`to include `rpcuser=<foo>` and `rpcpassword=<bar>` first, you may also need to include `testnet=1`.
 
 ```shell
@@ -449,7 +449,7 @@ Launch Core Lightning:
 
 ## To cross-compile for Android
 
-Make a standalone toolchain as per <https://developer.android.com/ndk/guides/standalone_toolchain.html>.  
+Make a standalone toolchain as per <https://developer.android.com/ndk/guides/standalone_toolchain.html>.
 For Core Lightning you must target an API level of 24 or higher.
 
 Depending on your toolchain location and target arch, source env variables such as:
@@ -474,8 +474,8 @@ make clean -C ccan/ccan/cdump/tools \
   && make CC=clang -C ccan/ccan/cdump/tools
 ```
 
-Install the `qemu-user` package.  
-This will allow you to properly configure the build for the target device environment.  
+Install the `qemu-user` package.
+This will allow you to properly configure the build for the target device environment.
 Build with:
 
 ```shell
@@ -502,8 +502,8 @@ export LD=$target_host-ld
 export STRIP=$target_host-strip
 ```
 
-Install the `qemu-user` package. This will allow you to properly configure the  
-build for the target device environment.  
+Install the `qemu-user` package. This will allow you to properly configure the
+build for the target device environment.
 Config the arm elf interpreter prefix:
 
 ```shell
@@ -547,7 +547,7 @@ For all the other Pi devices out there, consider using [Armbian](https://www.arm
 
 You can compile in `customize-image.sh` using the instructions for Ubuntu.
 
-A working example that compiles both bitcoind and Core Lightning for Armbian can  
+A working example that compiles both bitcoind and Core Lightning for Armbian can
 be found [here](https://github.com/Sjors/armbian-bitcoin-core).
 
 ## To compile for Alpine

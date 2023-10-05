@@ -333,8 +333,7 @@ not, and must be installed independently of Core Lightning.
 This can be done like this
 
 ```shell
-pip install json5 flask flask_restx flask-socketio \
-    gunicorn gevent gevent-websocket pyln-client
+pip install flask flask_restx flask-socketio gunicorn gevent gevent-websocket pyln-client
 ```
 
 or using the `requirements.txt` file that can be found in Core
