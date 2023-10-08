@@ -86,7 +86,7 @@ def ws_connect():
         if rune is None:
             raise Exception('{ "error": {"code": 403, "message": "Not authorized: Missing rune"} }')
         plugin.rpc.call("checkrune", {"rune": rune, "method": "getinfo"})
-        plugin.log("websocket connection established", "debug")
+        plugin.log("websocket connection established", "info")
         return True
     except Exception as err:
         # Logging as error/warn emits the event for all clients
@@ -110,7 +110,7 @@ class ListMethodsResource(Resource):
         try:
             help_response = plugin.rpc.call("help", [])
         except Exception as err:
-            plugin.log(f"Error: {err}", "debug")
+            plugin.log(f"Error: {err}", "info")
             return {"error": err.error}, 500
 
         commands = help_response["help"]
@@ -145,17 +145,17 @@ class RpcMethodResource(Resource):
             rune = request.headers.get("rune", None)
             if rune is None:
                 err = {"code": 403, "message": "Not authorized: Missing rune"}
-                plugin.log(f"Error: {repr(err)}", "debug")
+                plugin.log(f"Error: {repr(err)}", "info")
                 return {"error": err}, 401
             plugin.rpc.call("checkrune", {"rune": rune, "method": rpc_method, "params": rpc_params})
         except Exception as err:
-            plugin.log(f"Error: {err}", "debug")
+            plugin.log(f"Error: {err}", "info")
             return {"error": err.error}, 401
 
         try:
             return plugin.rpc.call(rpc_method, rpc_params), 201
         except Exception as err:
-            plugin.log(f"Error: {err}", "debug")
+            plugin.log(f"Error: {err}", "info")
             return {"error": err.error}, 500
 
 
